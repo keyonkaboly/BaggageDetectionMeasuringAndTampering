@@ -1,0 +1,341 @@
+        //A large amount of the program has been deleted. Inlcuding parts of this function. Email me to see it: keyonkaboly@gmail.com
+        //A large amount of the program has been deleted. Inlcuding parts of this function. Email me to see it: keyonkaboly@gmail.com
+
+
+//Basic C++ Libraries
+#include <iostream>
+#include <iomanip>
+#include <fstream>
+#include <vector>
+#include <sstream>
+#include <filesystem>
+#include <cmath>
+#include <tuple>
+#include <algorithm>
+
+//Open3D Library
+#include <open3d/Open3D.h>
+
+//Bumblebee Camera Libraries
+#include "Acquisition3d.h"
+#include "Timer.h"
+#include "../common/Example_Exception.h"
+#include "S3dCam.h"
+#include "S3dCamParameters.h"
+#include "getopt.h"
+
+//OpenCV Libraries
+#include "opencv2/core.hpp"
+#include "opencv2/imgcodecs.hpp"
+#include "opencv2/imgproc.hpp"
+#include "opencv2/highgui.hpp"
+#include "opencv2/aruco.hpp"
+#include "opencv2/calib3d.hpp"
+#include <opencv2/imgproc/types_c.h>
+#include <opencv2/aruco/charuco.hpp>
+#include <opencv2/aruco/aruco_calib.hpp>
+#include <opencv2/core/version.hpp>
+#include <opencv2/highgui/highgui_c.h>
+#include <opencv2/core/types.hpp>
+
+//Windows Library
+#include <windows.h>
+
+using namespace std;
+using namespace cv;
+
+const float arucoSquareDimension = 0.047625; //aruco marker size in metres
+const float minX = -0.329595;
+const float maxX = 0.502433;
+const float minY = -0.339115;
+const float maxY = 0.268957;
+
+
+struct Point3D {
+    float x, y, z;
+    unsigned char r, g, b;
+
+};
+
+vector<Point3f> processArUcoMarkers(const string& imagePath, const Mat& cameraMatrix, const Mat& distanceCoefficients);
+bool processArgs(int argc, char* argv[], Acquisition3dParams& params);
+void displayHelp(const string& pszProgramName, const Acquisition3dParams& params);
+bool savePointCloud(S3dCam* stc, ImageBlock& imageBlock, int counter);
+bool savePNGImages(S3dCam* stc, ImageBlock& imageBlock, int counter);
+void createSquarePlane(const vector<Point3f>& points, Vec4f& plane);
+bool loadCameraCalibration(const string& name, Mat& cameraMatrix, Mat& distanceCoefficients);
+float calculate3DDistance(const Point3f& point1, const Point3f& point2, const Mat& cameraMatrix);
+vector<Point3D> readPLYFile(const string& filename);
+void writePLYFile(const string& filename, const vector<Point3D>& points);
+Vec4f calculatePlaneEquation(const Point3f& p1, const Point3f& p2, const Point3f& p3);
+float calculateDistanceFromPlane(const Point3D& point, const Vec4f& plane);
+void processPointCloud(const string& inputPLYFile, const string& outputPLYFile, const vector<Point3f>& markerPositions);
+vector<Point3D> processPointCloud(const vector<Point3D>& points);
+vector<Point3D> filterPointCloud2(const vector<Point3D>& points);
+open3d::geometry::PointCloud convertToOpen3DPointCloud(const vector<Point3D>& points);
+shared_ptr<open3d::geometry::TriangleMesh> createMeshFromPointCloud(const open3d::geometry::PointCloud& cloud, double alpha = 0.01);
+void saveMeshAsOBJ(const shared_ptr<open3d::geometry::TriangleMesh>& mesh, const string& filename);
+tuple<double, double, double> calculateMeshDimensions(const shared_ptr<open3d::geometry::TriangleMesh>& mesh);
+bool checkBaggageTampering(const vector<Point3D>& points);
+
+int main(int argc, char** argv)
+{
+    string program_name = argv[0];
+    Acquisition3dParams acquisition3dParams;
+    if (!processArgs(argc, argv, acquisition3dParams)) {
+        return EXIT_FAILURE;
+    }
+
+    S3dCam* stc = new S3dCam();
+
+    Mat cameraMatrix, distCoeffs;
+    if (!loadCameraCalibration("SAVEDIMAGES", cameraMatrix, distCoeffs)) {
+        cerr << "Couldnt  load camera calibration data." << endl;
+        return EXIT_FAILURE;
+    }
+
+    try
+    {
+        stc->s3dCamParameters->rawLeftTransmitEnabled = acquisition3dParams.doEnableRawLeftTransmit;
+        stc->s3dCamParameters->rawRightTransmitEnabled = acquisition3dParams.doEnableRawRightTransmit;
+        stc->s3dCamParameters->rectLeftTransmitEnabled = acquisition3dParams.doEnableRectLeftTransmit;
+        stc->s3dCamParameters->rectRightTransmitEnabled = acquisition3dParams.doEnableRectRightTransmit;
+        stc->s3dCamParameters->disparityTransmitEnabled = acquisition3dParams.doEnableDisparityTransmit;
+        stc->s3dCamParameters->postProcessDisparity = true;
+        stc->s3dCamParameters->postProcessPointCloud = true;
+        stc->s3dCamParameters->medianWindowSize = 5;
+        stc->s3dCamParameters->speckleRange = 200;
+        stc->s3dCamParameters->minDisparities = 0;
+        stc->s3dCamParameters->uniquenessRatio = 10;
+        stc->s3dCamParameters->SGBMP1 = 5;
+        stc->s3dCamParameters->SGBMP2 = 60;
+        unsigned int minDisparities = 0;
+
+        bool doSetStreamsEnableVar = true;
+        stc->Init(doSetStreamsEnableVar);
+        if (stc->camera->TLStream.StreamPacketResendEnable.GetValue() == true) {
+            stc->camera->TLStream.StreamPacketResendEnable.SetValue(false);
+        }
+
+
+        stc->camera->DeviceLinkThroughputLimit.SetValue(450686123);
+        stc->camera->DeviceLinkThroughputLimit.SetValue(450686123);
+        if (stc->camera->AcquisitionFrameRateEnable.GetValue() == false) {
+            stc->camera->AcquisitionFrameRateEnable.SetValue(true);
+
+        }
+        stc->camera->AcquisitionFrameRateEnable.SetValue(14);
+
+        ImageBlock imageBlock;
+        int counter = 0;
+
+#ifdef BENCHMARK_PIPELINE
+        Timer stereoTimer;
+        stereoTimer.Start();
+        stereoTimer.Pause();
+#endif
+
+        //A large amount of the program has been deleted. Inlcuding parts of this function. Email me to see it: keyonkaboly@gmail.com
+}
+
+
+
+vector<Point3D> readPLYFile(const string& filename) {
+   
+      
+
+}
+
+void writePLYFile(const string& filename, const vector<Point3D>& points) {
+
+}
+
+
+Vec4f calculatePlaneEquation(const Point3f& p1, const Point3f& p2, const Point3f& p3) {
+
+}
+
+float distanceFromPlane(const Point3D& point, const Vec4f& plane) {
+
+}
+
+//Function that makes the processed point cloud file, deleting the excess XYZ coordinate related points.
+vector<Point3D> processPointCloud(const vector<Point3D>& points) {
+
+}
+
+
+
+vector<Point3f> processArUcoMarkers(const string& imagePath, const Mat& cameraMatrix, const Mat& distanceCoefficients)
+{
+ 
+}
+float calculateDistanceFromPlane(const Point3D& point, const Vec4f& plane) {
+
+}
+
+void createSquarePlane(const vector<Point3f>& points, Vec4f& plane)
+{
+
+}
+float calculate3DDistance(const Point3f& point1, const Point3f& point2, const Mat& cameraMatrix) {
+
+}
+
+bool processArgs(int argc, char* argv[], Acquisition3dParams& params)
+{
+    string execution_path = string(argv[0]);
+    size_t found = execution_path.find_last_of("/\\");
+    string program_name = execution_path.substr(found + 1);
+
+    int iOpt;
+    const char* current_param_position;
+    bool bBadArgs = false;
+
+    if (argc == 1) {
+        params.numFrames = 3;
+        params.doEnableRectLeftTransmit = true;
+        params.doEnableDisparityTransmit = true;
+        params.doEnableRectRightTransmit = true;
+        params.enablePointCloudOutput = true;
+        return true;
+    }
+
+    const char* param_match_pattern = "n:ABCDEFh?";
+
+    while ((iOpt = GetOption(argc, argv, param_match_pattern, &current_param_position)) != 0) {
+        switch (iOpt) {
+        case 'n':
+            if (sscanf(current_param_position, "%d", &params.numFrames) != 1) {
+                bBadArgs = true;
+            }
+            else {
+                if (params.numFrames <= 0) {
+                    cout << "The number of numFrames should be a number greater than 0." << endl;
+                    bBadArgs = true;
+                }
+            }
+            break;
+        case 'A':
+            params.doEnableRawLeftTransmit = true;
+            break;
+        case 'B':
+            params.doEnableRawRightTransmit = true;
+            break;
+        case 'C':
+            params.doEnableRectLeftTransmit = true;
+            break;
+        case 'D':
+            params.doEnableRectRightTransmit = true;
+            break;
+        case 'E':
+            params.doEnableDisparityTransmit = true;
+            break;
+        case 'F':
+            params.enablePointCloudOutput = true;
+            break;
+        case '?':
+        case 'h':
+        default:
+            cerr << "Invalid option provided: " << current_param_position << endl;
+            displayHelp(program_name, params);
+            return false;
+        }
+    }
+
+    if (bBadArgs) {
+        cout << "Invalid arguments" << endl;
+        displayHelp(program_name, params);
+        return false;
+    }
+    if (params.enablePointCloudOutput)
+    {
+        if (!params.doEnableDisparityTransmit)
+        {
+            cout << "Need to have disparity Image (-E) for point cloud generation" << endl << endl;
+            displayHelp(program_name, params);
+            return false;
+        }
+        if (!params.doEnableRectLeftTransmit)
+        {
+            cout << "Need to have Rectified Left Image (-C) for point cloud generation" << endl << endl;
+            displayHelp(program_name, params);
+            return false;
+        }
+        if (
+            !params.doEnableRawLeftTransmit &&
+            !params.doEnableRawRightTransmit &&
+            !params.doEnableRectLeftTransmit &&
+            !params.doEnableRectRightTransmit &&
+            !params.doEnableDisparityTransmit
+            )
+        {
+            cout << "Need to enable at least one image (-A/-B/-C/-D/-E)" << endl << endl;
+            displayHelp(program_name, params);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void displayHelp(const string& pszProgramName, const Acquisition3dParams& params)
+{
+    cout << "Usage: ";
+    cout << pszProgramName << " [OPTIONS]" << endl << endl;
+    cout << "OPTIONS" << endl << endl
+        << "  -n NUM_FRAMES                        Number frames" << endl
+        << "                                       Default is " << params.numFrames << endl
+        << "  -A DO_ENABLE_RAW_LEFT_TRANSMIT       doEnableRawLeftTransmit" << endl
+        << "                                       Default is " << params.doEnableRawLeftTransmit << endl
+        << "  -B DO_ENABLE_RAW_RIGHT_TRANSMIT      doEnableRawRightTransmit" << endl
+        << "                                       Default is " << params.doEnableRawRightTransmit << endl
+        << "  -C DO_ENABLE_RECT_LEFT_TRANSMIT      doEnableRectLeftTransmit" << endl
+        << "                                       Default is " << params.doEnableRectLeftTransmit << endl
+        << "  -D DO_ENABLE_RECT_RIGHT_TRANSMIT     doEnableRectRightTransmit" << endl
+        << "                                       Default is " << params.doEnableRectRightTransmit << endl
+        << "  -E DO_ENABLE_DISPARITY_TRANSMIT      doEnableDisparityTransmit" << endl
+        << "                                       Default is " << params.doEnableDisparityTransmit << endl
+        << "  -F ENABLE_POINTCLOUD_OUTPUT          enablePointcloudOuput" << endl
+        << "                                       Default is " << params.enablePointCloudOutput << endl
+        << "EXAMPLE" << endl << endl
+        << "    " << pszProgramName
+        << " -n " << params.numFrames << " -A " << " -B " << " -C " << " -D " << " -E " << " - F "
+        << endl << endl;
+}
+
+bool savePointCloud(S3dCam* stc, ImageBlock& imageBlock, int counter)
+{
+
+}
+
+bool savePNGImages(S3dCam* stc, ImageBlock& imageBlock, int counter)
+{
+
+}
+
+vector<Point3D> filterPointCloud2(const vector<Point3D>& points) {
+    
+}
+
+open3d::geometry::PointCloud convertToOpen3DPointCloud(const vector<Point3D>& points) {
+
+}
+
+shared_ptr<open3d::geometry::TriangleMesh> createMeshFromPointCloud(const open3d::geometry::PointCloud& cloud, double alpha) {
+
+}
+
+
+void saveMeshAsOBJ(const shared_ptr<open3d::geometry::TriangleMesh>& mesh, const string& filename) {
+
+}
+
+tuple<double, double, double> calculateMeshDimensions(const shared_ptr<open3d::geometry::TriangleMesh>& mesh) {
+
+}
+
+
+bool checkBaggageTampering(const vector<Point3D>& points) {
+
+}
